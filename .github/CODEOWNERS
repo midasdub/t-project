@@ -1,0 +1,3 @@
+# Any change to the pipeline configuration needs the approval of a code owner.
+# Protects .github/ (workflows, this file) against changes made by the coding agent.
+/.github/ @lyudab

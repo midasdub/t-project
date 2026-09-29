@@ -1,0 +1,52 @@
+# code-guard: checks every pull request to main with the code-guard image.
+#
+# Why pull_request_target and not pull_request:
+#   with pull_request, GitHub runs the workflow file FROM THE PR BRANCH, so the
+#   author of the PR could edit or delete this file and disable the check.
+#   With pull_request_target, GitHub always runs the version of this file that is
+#   on main (the base branch). Changes made to it in a PR have no effect on that PR.
+#
+# The price: pull_request_target runs with the base repository's rights.
+# Rule for this file: the PR code is DATA ONLY. It is mounted read-only into the
+# code-guard container and read by static analysers. It is never installed,
+# built, required or executed here (no npm install, no npm test, no scripts).
+name: code-guard
+
+on:
+  pull_request_target:
+    branches: [main]
+    # opened = PR created, synchronize = new commits pushed, reopened = PR reopened
+    types: [opened, synchronize, reopened]
+
+# Read-only token: even if something went wrong, the job cannot write to the repo
+permissions:
+  contents: read
+
+env:
+  # Fixed version of code-guard: the verdict does not change unless a human
+  # updates this line on main.
+  CODE_GUARD_IMAGE: ghcr.io/midasdub/code-guard:0.1.0
+
+jobs:
+  code-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch the PR code (as data, never executed)
+        # Pinned to a commit SHA: a tag can be moved to other code, a SHA cannot
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit the PR author pushed (by default pull_request_target checks out main)
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          # Do not leave the job token in pr/.git/config, where the analysed code lives
+          persist-credentials: false
+
+      - name: Run code-guard
+        # --network none: the analysis needs no network, so nothing can be sent out
+        # :ro: code-guard reads the code but cannot modify it (and refuses to run otherwise)
+        # The exit code of the container is the verdict: 0 = allowed, 1 = blocked
+        run: |
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE/pr":/workspace:ro \
+            "$CODE_GUARD_IMAGE"
